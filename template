@@ -1,1 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nepal Map Guess</title>
 
+    <!-- OpenLayers -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@latest/ol.css">
+    <script src="https://cdn.jsdelivr.net/npm/ol@latest/dist/ol.js"></script>
+
+    <!-- Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 1000px;
+            margin-top: 30px;
+        }
+
+        .card {
+            background: white;
+            color: #333;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            text-align: center;
+            color: #2a5298;
+            margin-bottom: 10px;
+        }
+
+        .info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        #map {
+            height: 450px;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .buttons {
+            margin-top: 15px;
+            text-align: center;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        .guess-btn {
+            background: #2a5298;
+            color: white;
+        }
+
+        .guess-btn:hover {
+            background: #1e3c72;
+        }
+
+        .next-btn {
+            background: #27ae60;
+            color: white;
+        }
+
+        .next-btn:hover {
+            background: #1e8449;
+        }
+
+        #result {
+            margin-top: 10px;
+            text-align: center;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="card">
+
+        <div class="info">
+            <div>Round: <span id="round">{{ round }}</span> / 5</div>
+            <div>Total Score: <span id="totalScore">{{ total_score }}</span></div>
+        </div>
+
+        <h1 id="locationName">{{ location_name }}</h1>
+
+        <div id="map"></div>
+
+        <div class="buttons">
+            <button class="guess-btn" onclick="submitGuess()">Submit Guess</button>
+            <button class="next-btn" onclick="nextRound()" id="nextBtn" disabled>Next Round</button>
+        </div>
+
+        <div id="result"></div>
+
+    </div>
+</div>
+
+<script>
+    var guessedLat = null;
+    var guessedLon = null;
+    var playerLayer = null;
+    var correctLayer = null;
+
+    var map = new ol.Map({
+        target: 'map',
+        layers: [
+            new ol.layer.Tile({
+                source: new ol.source.OSM()
+            })
+        ],
+        view: new ol.View({
+            center: ol.proj.fromLonLat([84, 28]),
+            zoom: 7
+        })
+    });
+
+    map.on('click', function (evt) {
+        var coord = ol.proj.toLonLat(evt.coordinate);
+        guessedLon = coord[0];
+        guessedLat = coord[1];
+
+        showPlayerMarker(guessedLat, guessedLon);
+    });
+
+    function showPlayerMarker(lat, lon) {
+
+        if (playerLayer) map.removeLayer(playerLayer);
+
+        var marker = new ol.Feature({
+            geometry: new ol.geom.Point(
+                ol.proj.fromLonLat([lon, lat])
+            )
+        });
+
+        marker.setStyle(new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 8,
+                fill: new ol.style.Fill({ color: 'blue' }),
+                stroke: new ol.style.Stroke({ color: 'white', width: 2 })
+            })
+        }));
+
+        playerLayer = new ol.layer.Vector({
+            source: new ol.source.Vector({
+                features: [marker]
+            })
+        });
+
+        map.addLayer(playerLayer);
+    }
+
+    function showCorrectMarker(lat, lon) {
+
+        if (correctLayer) map.removeLayer(correctLayer);
+
+        var marker = new ol.Feature({
+            geometry: new ol.geom.Point(
+                ol.proj.fromLonLat([lon, lat])
+            )
+        });
+
+        marker.setStyle(new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 8,
+                fill: new ol.style.Fill({ color: 'red' }),
+                stroke: new ol.style.Stroke({ color: 'white', width: 2 })
+            })
+        }));
+
+        correctLayer = new ol.layer.Vector({
+            source: new ol.source.Vector({
+                features: [marker]
+            })
+        });
+
+        map.addLayer(correctLayer);
+    }
+
+    function submitGuess() {
+
+        if (guessedLat === null) {
+            alert("Please select a location on the map!");
+            return;
+        }
+
+        fetch('/guess', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                lat: guessedLat,
+                lon: guessedLon
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+
+            document.getElementById("result").innerHTML =
+                "Distance: " + data.distance + " km<br>" +
+                "Round Score: " + data.score;
+
+            document.getElementById("totalScore").innerText = data.total_score;
+
+            showCorrectMarker(data.correct_lat, data.correct_lon);
+
+            if (!data.game_over) {
+                document.getElementById("nextBtn").disabled = false;
+            } else {
+                document.getElementById("result").innerHTML +=
+                    "<br><br>🎉 GAME OVER! Final Score: " + data.total_score;
+            }
+        });
+    }
+
+    function nextRound() {
+        fetch('/next')
+        .then(res => res.json())
+        .then(data => {
+
+            document.getElementById("locationName").innerText = data.location_name;
+            document.getElementById("round").innerText = data.round;
+            document.getElementById("result").innerHTML = "";
+            document.getElementById("nextBtn").disabled = true;
+
+            if (correctLayer) map.removeLayer(correctLayer);
+            if (playerLayer) map.removeLayer(playerLayer);
+
+            guessedLat = null;
+            guessedLon = null;
+        });
+    }
+</script>
+
+</body>
+</html>
